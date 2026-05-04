@@ -67,7 +67,45 @@ def test_write_report_writes_files(tmp_path: Path) -> None:
     )
     assert (tmp_path / "report.md").exists()
     assert (tmp_path / "report.html").exists()
-    assert set(written.keys()) == {"md", "html"}
+    assert (tmp_path / "findings.json").exists(), (
+        "findings.json sidecar must be emitted regardless of formats"
+    )
+    assert set(written.keys()) == {"md", "html", "json"}
+
+
+def test_write_report_findings_json_is_round_trippable(tmp_path: Path) -> None:
+    """findings.json must round-trip through Finding.model_validate."""
+    import json as _json
+
+    from sentinelweb.reporting.findings import Finding
+
+    render.write_report(
+        [_finding()],
+        Engagement(program="Test", authorization="x"),
+        tmp_path,
+    )
+    payload = _json.loads((tmp_path / "findings.json").read_text())
+    assert payload["version"]
+    assert payload["engagement"]["program"] == "Test"
+    assert len(payload["findings"]) == 1
+    rebuilt = Finding.model_validate(payload["findings"][0])
+    assert rebuilt.id == "HDR-1"
+
+
+def test_write_report_emits_sarif_when_requested(tmp_path: Path) -> None:
+    import json as _json
+
+    written = render.write_report(
+        [_finding()],
+        Engagement(program="Test", authorization="x"),
+        tmp_path,
+        formats=["md", "sarif"],
+    )
+    assert (tmp_path / "report.sarif").exists()
+    assert "sarif" in written
+    parsed = _json.loads((tmp_path / "report.sarif").read_text())
+    assert parsed["version"] == "2.1.0"
+    assert parsed["runs"][0]["results"][0]["ruleId"] == "HDR-1"
 
 
 def test_hackerone_template() -> None:
