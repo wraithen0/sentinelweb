@@ -24,14 +24,51 @@
 sentinelweb scan \
   --scope scope.yaml \
   --audit audit.jsonl \
+  --session session.yaml \
   --scanner all \
   --report-dir reports/run-N \
-  --format md --format html \
+  --format md --format html --format sarif \
   https://example.test/ https://api.example.test/foo?id=1
 ```
 
 `--scanner` may be repeated; choices are `headers`, `cors`, `redirect`,
-`xss`, `sqli`, `tls`, or `all`.
+`xss`, `sqli`, `tls`, `takeover`, or `all`.
+
+### Authenticated sessions
+
+`--session FILE` loads a YAML/JSON bundle of cookies + headers for the
+in-scope target. Credentials are attached **only** to in-scope hosts —
+even a wildcard cookie will not be sent to a third-party domain the
+target redirects you to.
+
+```yaml
+# session.yaml
+cookies:
+  - name: session
+    value: "abc123"
+    domain: "example.test"      # or "*" for any in-scope host
+    path: "/"
+headers:
+  Authorization: "Bearer eyJ..."
+host_headers:                   # optional per-host overrides
+  api.example.test:
+    X-Internal-Token: "..."
+```
+
+## takeover
+
+Probes one or more in-scope hostnames for dangling-CNAME subdomain
+takeovers (signal-only — never claims the resource):
+
+```bash
+sentinelweb takeover --scope scope.yaml \
+  orphan.example.test legacy.example.test
+```
+
+Detection follows the public ``can-i-take-over-xyz`` fingerprints for
+GitHub Pages, S3, Heroku, Vercel, Netlify, Azure, Bitbucket, Shopify,
+and Tumblr. The same logic is also reachable via
+`sentinelweb scan --scanner takeover`.
 
 ## jwt
 

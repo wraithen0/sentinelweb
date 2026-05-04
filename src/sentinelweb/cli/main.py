@@ -24,10 +24,12 @@ from ..scanners import jwt as scan_jwt
 from ..scanners import redirect as scan_redirect
 from ..scanners import sqli as scan_sqli
 from ..scanners import ssrf as scan_ssrf
+from ..scanners import takeover as scan_takeover
 from ..scanners import tls as scan_tls
 from ..scanners import xss as scan_xss
 from ..scope.audit import AuditLog, verify
 from ..scope.policy import OutOfScopeError, ScopeError, ScopePolicy, example_yaml
+from ..scope.session import Session, SessionError
 from ..utils.http import make_client
 from ..utils.logging import configure, fatal, get_logger
 from ..utils.urls import normalize_host
@@ -42,6 +44,19 @@ def _load_scope(path: str) -> ScopePolicy:
     except ScopeError as exc:
         fatal(str(exc))
         raise  # for type checkers
+
+
+def _load_session(
+    session_path: str | None, policy: ScopePolicy
+) -> Session | None:
+    """Load and scope-bind a session file. Returns None when path is None."""
+    if not session_path:
+        return None
+    try:
+        return Session.load(session_path).bind(policy)
+    except SessionError as exc:
+        fatal(str(exc))
+        raise
 
 
 def _attach_audit(policy: ScopePolicy, audit_path: str | None) -> AuditLog | None:
@@ -235,9 +250,21 @@ def recon_endpoints_cmd(scope_path: str, audit_path: str | None, url: str) -> No
 @click.option("--scope", "scope_path", required=True, type=click.Path(exists=True))
 @click.option("--audit", "audit_path", type=click.Path(), default=None)
 @click.option(
+    "--session",
+    "session_path",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help=(
+        "Authenticated session file (YAML/JSON) carrying cookies + headers. "
+        "Session credentials are attached only to in-scope hosts."
+    ),
+)
+@click.option(
     "--scanner",
     multiple=True,
-    type=click.Choice(["headers", "cors", "redirect", "xss", "sqli", "tls", "all"]),
+    type=click.Choice(
+        ["headers", "cors", "redirect", "xss", "sqli", "tls", "takeover", "all"]
+    ),
     default=["all"],
     show_default=True,
 )
@@ -259,6 +286,7 @@ def recon_endpoints_cmd(scope_path: str, audit_path: str | None, url: str) -> No
 def scan_cmd(
     scope_path: str,
     audit_path: str | None,
+    session_path: str | None,
     scanner: tuple[str, ...],
     report_dir: str,
     formats: tuple[str, ...],
@@ -266,9 +294,10 @@ def scan_cmd(
 ) -> None:
     policy = _load_scope(scope_path)
     audit = _attach_audit(policy, audit_path)
+    session = _load_session(session_path, policy)
     selected = set(scanner)
     if "all" in selected:
-        selected = {"headers", "cors", "redirect", "xss", "sqli", "tls"}
+        selected = {"headers", "cors", "redirect", "xss", "sqli", "tls", "takeover"}
 
     for url in targets:
         try:
@@ -281,7 +310,10 @@ def scan_cmd(
 
     async def _run_async() -> None:
         async with make_client(
-            rate_per_sec=policy.rate_per_sec, max_redirects=0
+            rate_per_sec=policy.rate_per_sec,
+            max_redirects=0,
+            session=session,
+            policy=policy,
         ) as client:
             for url in targets:
                 if "headers" in selected:
@@ -294,6 +326,8 @@ def scan_cmd(
                     findings.extend(await scan_xss.scan(url, policy, client))
                 if "sqli" in selected:
                     findings.extend(await scan_sqli.scan(url, policy, client))
+                if "takeover" in selected:
+                    findings.extend(await scan_takeover.scan(url, policy, client))
 
     asyncio.run(_run_async())
 
@@ -418,6 +452,52 @@ def ssrf_cmd(
             detail={"callback": callback, "findings": len(findings)},
         )
     _print_summary(findings)
+
+
+# ---------------------------------------------------------------------------
+# takeover subcommand — DNS+HTTP fingerprint for dangling SaaS CNAMEs.
+# ---------------------------------------------------------------------------
+
+
+@cli.command(
+    "takeover",
+    help="Probe in-scope hosts for dangling-CNAME subdomain takeovers.",
+)
+@click.option("--scope", "scope_path", required=True, type=click.Path(exists=True))
+@click.option("--audit", "audit_path", type=click.Path(), default=None)
+@click.argument("hosts", nargs=-1, required=True)
+def takeover_cmd(
+    scope_path: str, audit_path: str | None, hosts: tuple[str, ...]
+) -> None:
+    policy = _load_scope(scope_path)
+    audit = _attach_audit(policy, audit_path)
+
+    for h in hosts:
+        try:
+            policy.assert_in_scope(h)
+        except OutOfScopeError as exc:
+            fatal(str(exc))
+            return
+
+    async def _run() -> list[Finding]:
+        out: list[Finding] = []
+        async with make_client(rate_per_sec=policy.rate_per_sec) as client:
+            for h in hosts:
+                out.extend(await scan_takeover.scan(h, policy, client))
+        return out
+
+    findings = asyncio.run(_run())
+    if audit:
+        audit.append(
+            "scan.takeover",
+            target=",".join(hosts),
+            detail={"findings": len(findings)},
+        )
+    _print_summary(findings)
+    for f in findings:
+        console.print(
+            f"[bold]{f.severity.value.upper()}[/bold] {f.id}  {f.target}"
+        )
 
 
 # ---------------------------------------------------------------------------
