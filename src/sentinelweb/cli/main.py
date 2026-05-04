@@ -99,6 +99,43 @@ def _load_templates(
     return templates
 
 
+def _verify_xss(findings: list[Finding], policy: ScopePolicy) -> list[Finding]:
+    """Promote tentative XSS findings via headless Firefox.
+
+    Imported lazily so the optional ``[headless]`` extra (Selenium) is
+    only required when the user actually passes ``--verify-xss``.
+    """
+    try:
+        from ..headless import (
+            FirefoxVerifier,
+            verify_xss_findings,
+        )
+    except ImportError as exc:  # pragma: no cover - defensive
+        fatal(
+            "headless verification unavailable: "
+            f"{exc}. Install with `pip install -e '.[headless]'`."
+        )
+        return findings
+    ok, reason = FirefoxVerifier.is_available()
+    if not ok:
+        console.print(
+            f"[yellow]--verify-xss skipped:[/yellow] {reason}"
+        )
+        return findings
+    candidates = [f for f in findings if f.id.startswith("XSS-REFLECTED-")]
+    if not candidates:
+        console.print(
+            "[yellow]--verify-xss:[/yellow] no XSS-REFLECTED-* findings to verify."
+        )
+        return findings
+    console.print(
+        f"[cyan]--verify-xss:[/cyan] launching headless Firefox to verify "
+        f"{len(candidates)} candidate(s)..."
+    )
+    with FirefoxVerifier(scope=policy) as verifier:
+        return verify_xss_findings(findings, policy, verifier)
+
+
 def _attach_audit(policy: ScopePolicy, audit_path: str | None) -> AuditLog | None:
     if not audit_path:
         return None
@@ -338,6 +375,18 @@ def recon_endpoints_cmd(scope_path: str, audit_path: str | None, url: str) -> No
         "(repeat the flag to allow several)."
     ),
 )
+@click.option(
+    "--verify-xss",
+    "verify_xss",
+    is_flag=True,
+    default=False,
+    help=(
+        "Headlessly verify reflected-XSS findings using system Firefox "
+        "(via geckodriver). Requires the `headless` optional extra and "
+        "`firefox` + `geckodriver` on PATH. Confirmed findings are "
+        "appended as XSS-VERIFIED-<PARAM> with severity CRITICAL."
+    ),
+)
 @click.option("--report-dir", type=click.Path(), default="reports", show_default=True)
 @click.option(
     "--format",
@@ -360,6 +409,7 @@ def scan_cmd(
     scanner: tuple[str, ...],
     templates_dir: str | None,
     template_ids: tuple[str, ...],
+    verify_xss: bool,
     report_dir: str,
     formats: tuple[str, ...],
     targets: tuple[str, ...],
@@ -427,6 +477,9 @@ def scan_cmd(
     if "tls" in selected:
         for url in targets:
             findings.extend(scan_tls.scan(url, policy))
+
+    if verify_xss:
+        findings = _verify_xss(findings, policy)
 
     findings = sort_findings(findings)
     _print_summary(findings)
