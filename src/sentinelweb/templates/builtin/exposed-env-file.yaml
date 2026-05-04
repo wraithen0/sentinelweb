@@ -1,0 +1,35 @@
+# Detects /.env exposed to unauthenticated callers. .env files commonly
+# contain database URLs, API keys, signing secrets, etc.
+id: exposed-env-file
+info:
+  name: "Exposed .env file"
+  severity: high
+  description: |
+    The path `/.env` returned a 200 response whose body looks like a
+    list of `KEY=value` pairs. This file commonly contains database
+    credentials, third-party API keys, and signing secrets and should
+    never be reachable from the public internet.
+  remediation: |
+    Block dotfiles at the web server (e.g. nginx
+    `location ~ /\. { deny all; }`) and ensure `.env` is not deployed
+    to public document roots.
+  references:
+    - https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/01-Information_Gathering/03-Review_Webserver_Metafiles_for_Information_Leakage
+  cwe: 200
+  category: information-disclosure
+  tags: [exposure, dotfile, owasp-asvs]
+
+requests:
+  - method: GET
+    path:
+      - "/.env"
+      - "/.env.local"
+      - "/.env.production"
+    matchers-condition: and
+    matchers:
+      - type: status
+        status: [200]
+      - type: regex
+        part: body
+        regex:
+          - "^[A-Z][A-Z0-9_]+=.+"

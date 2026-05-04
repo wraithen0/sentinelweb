@@ -103,6 +103,7 @@ src/sentinelweb/
   utils/        rate-limited HTTP client, URL helpers, logging
   recon/        passive recon: subdomains, ports, tech, endpoints
   scanners/     OWASP-oriented detection modules (signal only)
+  templates/    YAML detection-template engine (subset of nuclei DSL)
   integrations/ wrappers for nuclei, httpx, ffuf, sqlmap
   reporting/    Finding model, CVSS scorer, Jinja templates
   cli/          Click-based CLI orchestrating everything
