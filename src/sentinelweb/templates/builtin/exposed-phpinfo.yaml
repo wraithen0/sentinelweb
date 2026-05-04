@@ -1,0 +1,37 @@
+# Detects a public `phpinfo()` page, which leaks PHP build, loaded
+# extensions, environment variables, and full filesystem paths.
+id: exposed-phpinfo
+info:
+  name: "Exposed phpinfo() page"
+  severity: medium
+  description: |
+    A reachable URL returned a 200 response containing the phpinfo()
+    HTML banner. phpinfo pages disclose the PHP build, loaded
+    extensions, server environment variables, and absolute filesystem
+    paths, all of which assist an attacker in mapping the target.
+  remediation: |
+    Remove `phpinfo()` files (e.g. `info.php`, `phpinfo.php`,
+    `test.php`) from the web root, or restrict access to internal IPs.
+  references:
+    - https://www.php.net/manual/en/function.phpinfo.php
+  cwe: 200
+  category: information-disclosure
+  tags: [exposure, php, owasp-asvs]
+
+requests:
+  - method: GET
+    path:
+      - "/phpinfo.php"
+      - "/info.php"
+      - "/test.php"
+    matchers-condition: and
+    matchers:
+      - type: status
+        status: [200]
+      - type: word
+        part: body
+        words:
+          - "PHP Version"
+          - "phpinfo()"
+        condition: or
+        case-insensitive: false

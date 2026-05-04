@@ -1,0 +1,36 @@
+# Detects whether a known sensitive system file is served from common
+# misconfigured paths. Signal-only: the matcher just looks for the
+# literal "root:x:0:0:" prefix that /etc/passwd starts with.
+id: passwd-leak-canary
+info:
+  name: "Possible /etc/passwd disclosure via static-file misconfiguration"
+  severity: high
+  description: |
+    A 200 response was returned that contains the literal
+    `root:x:0:0:` line at the start of a `/etc/passwd`-style body.
+    This signals that the web server is serving system files from a
+    misconfigured static-file root.
+  remediation: |
+    Constrain the static-file root to your application's
+    `public/` / `static/` directory. Audit reverse-proxy rules
+    (e.g. nginx `alias` vs `root` confusion).
+  references:
+    - https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/05-Authorization_Testing/01-Testing_Directory_Traversal_File_Include
+  cwe: 22
+  category: information-disclosure
+  tags: [traversal, static-misconfig, owasp-top-10]
+
+requests:
+  - method: GET
+    path:
+      - "/etc/passwd"
+      - "/static/etc/passwd"
+      - "/files/etc/passwd"
+    matchers-condition: and
+    matchers:
+      - type: status
+        status: [200]
+      - type: regex
+        part: body
+        regex:
+          - "^root:x?:0:0:"
