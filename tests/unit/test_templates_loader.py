@@ -154,3 +154,66 @@ def test_list_builtin_paths_returns_yaml_files() -> None:
     assert paths
     for p in paths:
         assert p.suffix.lower() in {".yaml", ".yml"}
+
+
+def test_load_builtin_does_not_depend_on_disk_paths(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression test: ``load_builtin`` must work even when on-disk paths
+    are unavailable (e.g. zip-imported install). It should read each
+    resource via :py:meth:`Traversable.read_text` and never call
+    ``__fspath__`` to obtain a temporary path that would dangle.
+    """
+    from sentinelweb.templates import loader
+
+    # Fail loudly if any code path calls __fspath__ on a Traversable;
+    # this is what the previous as_file()-after-context-exit bug did.
+    real_iter = loader._iter_builtin_resources
+
+    class FsPathTrap:
+        def __init__(self, real: object) -> None:
+            self._real = real
+
+        def __getattr__(self, name: str) -> object:
+            if name == "__fspath__":
+                raise AssertionError(
+                    "load_builtin must not depend on Traversable.__fspath__ "
+                    "(would break zip-imported installs)"
+                )
+            return getattr(self._real, name)
+
+        # Forward read_text directly so we don't trip __getattr__'s magic
+        # filter on a dunder method.
+        def read_text(self, encoding: str = "utf-8") -> str:
+            return self._real.read_text(encoding=encoding)
+
+        @property
+        def name(self) -> str:
+            return self._real.name
+
+        def is_file(self) -> bool:
+            return self._real.is_file()
+
+    def _wrapped() -> object:
+        for entry in real_iter():
+            yield FsPathTrap(entry)
+
+    monkeypatch.setattr(loader, "_iter_builtin_resources", _wrapped)
+    out = load_builtin()
+    assert out, "load_builtin should still return templates without filesystem paths"
+
+
+def test_builtin_package_has_init_file() -> None:
+    """The bundled-templates dir must be an explicit package (not namespace).
+
+    Without ``__init__.py`` ``importlib.resources.files`` falls back to
+    implicit-namespace-package handling, which CPython 3.11 only
+    "partially supports". Adding the ``__init__.py`` makes the loader
+    behave the same way regardless of how SentinelWeb was installed.
+    """
+    import sentinelweb.templates.builtin as pkg
+
+    # The package must have a real loader; namespace packages have ``__path__``
+    # but no ``__file__``.
+    assert hasattr(pkg, "__file__"), (
+        "templates/builtin must be a regular package with __init__.py, "
+        "not a namespace package"
+    )

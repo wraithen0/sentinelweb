@@ -135,6 +135,51 @@ See [`examples/templates/`](../examples/templates/) for hand-authored
 templates and [`src/sentinelweb/templates/builtin/`](../src/sentinelweb/templates/builtin/)
 for the bundled set.
 
+## Headless XSS verification
+
+The XSS scanner is signal-only — it injects a benign canary and flags
+parameters where the canary is reflected unencoded into HTML context.
+Most candidates are real XSS, but some sit in contexts that look
+dangerous yet aren't actually executable (e.g. inside an attribute the
+browser auto-escapes). To get a *certain* signal, opt in to headless
+verification:
+
+```bash
+# Install the optional extra and the system browser
+pip install -e '.[headless]'
+sudo dnf install firefox geckodriver       # Fedora
+# sudo apt install firefox-esr firefox-geckodriver  # Debian/Ubuntu
+
+# Run a normal scan with verification on
+sentinelweb scan --scope scope.yaml --scanner xss \
+  --verify-xss \
+  https://example.test/search
+```
+
+For every `XSS-REFLECTED-*` finding, SentinelWeb opens the
+parameter-mutated URL in headless Firefox with a benign payload that
+sets `document.title` to a per-finding nonce. If the title actually
+changes, the finding is **promoted** to a new `XSS-VERIFIED-<PARAM>`
+finding with severity `CRITICAL` and confidence `CERTAIN`. The original
+candidate is preserved alongside the verified one so triagers see both
+signals.
+
+Safety properties of the verification step:
+
+- **No exfiltration.** The payload only writes to `document.title`. No
+  `fetch`, `XMLHttpRequest`, `WebSocket`, `localStorage`,
+  `sessionStorage`, cookie reads, or form submissions are issued.
+- **No persistence.** A fresh browser process is created and torn down
+  per scan; nothing is written to disk.
+- **Scope-checked twice.** Verification URLs go through `ScopePolicy`
+  before navigation, even though the scanner already filtered them.
+- **Optional.** Without `--verify-xss` the framework never starts a
+  browser, and without the `[headless]` extra (Selenium) the flag
+  emits a clear skip message and continues.
+
+If `firefox` or `geckodriver` aren't found on `PATH`, the scan still
+runs to completion — verification is skipped with a yellow warning.
+
 ## takeover
 
 Probes one or more in-scope hostnames for dangling-CNAME subdomain
