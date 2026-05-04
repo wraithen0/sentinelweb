@@ -33,12 +33,14 @@ sentinelweb scan \
 ```
 
 `--scanner` may be repeated; choices are `headers`, `cors`, `redirect`,
-`xss`, `sqli`, `tls`, `takeover`, `templates`, `secrets`, or `all`. The
-`templates` scanner runs the bundled YAML detection templates (or a
-custom directory via `--templates-dir DIR`) — see [templates](#templates)
-below. The `secrets` scanner inspects response bodies and headers for
-accidentally-exposed credentials — see [secrets](#secrets-in-responses)
-below.
+`xss`, `sqli`, `tls`, `takeover`, `templates`, `secrets`, `graphql`, or
+`all`. The `templates` scanner runs the bundled YAML detection templates
+(or a custom directory via `--templates-dir DIR`) — see
+[templates](#templates) below. The `secrets` scanner inspects response
+bodies and headers for accidentally-exposed credentials — see
+[secrets](#secrets-in-responses) below. The `graphql` scanner probes a
+GraphQL endpoint for introspection and dev-UI exposure — see
+[graphql](#graphql) below.
 
 ### Severity threshold
 
@@ -298,6 +300,30 @@ Some matches are *intentionally* public:
 These are still surfaced (so you can inventory them), but at severity
 `INFO` with remediation marked "no rotation required". Don't open a
 bounty report for these.
+
+## graphql
+
+Probes a GraphQL endpoint for two high-value misconfigurations:
+
+```bash
+sentinelweb scan --scope scope.yaml \
+  --scanner graphql \
+  https://api.example.test/graphql
+```
+
+* `GRAPHQL-INTROSPECTION-EXPOSED` (HIGH / CERTAIN, CWE-200) — the server
+  answers a canonical `{__schema{queryType{name}}}` introspection query.
+  Attackers gain the equivalent of internal API documentation.
+* `GRAPHQL-GRAPHIQL-EXPOSED` / `GRAPHQL-PLAYGROUND-EXPOSED` /
+  `GRAPHQL-APOLLO-SANDBOX-EXPOSED` (MEDIUM / FIRM, CWE-200) — a
+  developer UI (GraphiQL, GraphQL Playground, or Apollo Sandbox) is
+  served at the URL. These tools ship with introspection wired in and
+  should never reach production.
+
+The scanner is **signal-only**: it sends one introspection POST and one
+GET for the UI check. It does not exfiltrate the schema, mutate state,
+or attempt nested-query DoS. It also does not auto-discover endpoints —
+pass the GraphQL URL explicitly so scope-gating stays predictable.
 
 ## takeover
 

@@ -24,6 +24,7 @@ from ..reporting.findings import (
     sort_findings,
 )
 from ..scanners import cors as scan_cors
+from ..scanners import graphql as scan_graphql
 from ..scanners import headers as scan_headers
 from ..scanners import jwt as scan_jwt
 from ..scanners import redirect as scan_redirect
@@ -356,6 +357,7 @@ def recon_endpoints_cmd(scope_path: str, audit_path: str | None, url: str) -> No
             "takeover",
             "templates",
             "secrets",
+            "graphql",
             "all",
         ]
     ),
@@ -449,6 +451,7 @@ def scan_cmd(
             "takeover",
             "templates",
             "secrets",
+            "graphql",
         }
 
     for url in targets:
@@ -488,6 +491,8 @@ def scan_cmd(
                     findings.extend(await scan_takeover.scan(url, policy, client))
                 if "secrets" in selected:
                     findings.extend(await scan_secrets.scan(url, policy, client))
+                if "graphql" in selected:
+                    findings.extend(await scan_graphql.scan(url, policy, client))
             if templates:
                 findings.extend(
                     await run_templates_against(
