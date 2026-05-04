@@ -41,6 +41,10 @@ def test_markdown_render_contains_finding() -> None:
     assert "Missing HSTS" in md
     assert "MEDIUM" in md
     assert "CVSS 3.1" in md
+    assert "`HDR-1`" in md, "structured finding ID must be present in markdown"
+    assert "MEDIUM`-" not in md, (
+        "metadata bullets must be on separate lines, not collapsed by trim_blocks"
+    )
 
 
 def test_html_render_contains_finding() -> None:
@@ -52,6 +56,7 @@ def test_html_render_contains_finding() -> None:
     )
     assert "Missing HSTS" in html
     assert "<html" in html
+    assert "HDR-1" in html, "structured finding ID must be present in html"
 
 
 def test_write_report_writes_files(tmp_path: Path) -> None:
@@ -69,3 +74,13 @@ def test_hackerone_template() -> None:
     out = render.render_hackerone(_finding())
     assert "Missing HSTS" in out
     assert "Steps to reproduce" in out
+    assert "`HDR-1`" in out, "structured finding ID must be present"
+    assert "MEDIUM**" not in out, "severity must not be glued to next field"
+
+
+def test_bugcrowd_template() -> None:
+    out = render.render_bugcrowd(_finding())
+    assert "Missing HSTS" in out
+    assert "Steps to reproduce" in out
+    assert "`HDR-1`" in out
+    assert "CWE-319" in out

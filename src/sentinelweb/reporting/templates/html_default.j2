@@ -44,7 +44,8 @@
   <h2>{{ loop.index }}. {{ f.title }}</h2>
   <p>
     <span class="badge {{ f.severity.value }}">{{ f.severity.value }}</span>
-    {% if f.cvss_score is not none %}<strong>CVSS 3.1:</strong> {{ f.cvss_score }}{% endif %}
+    <strong>ID:</strong> <code>{{ f.id }}</code>
+    {% if f.cvss_score is not none %}· <strong>CVSS 3.1:</strong> {{ f.cvss_score }}{% endif %}
     · <strong>Confidence:</strong> {{ f.confidence.value }}
     · <strong>Target:</strong> <code>{{ f.target }}</code>
     · <strong>Category:</strong> {{ f.category }}

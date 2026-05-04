@@ -1,11 +1,18 @@
 {# Single-finding HackerOne-style submission template. #}
 **Title:** {{ finding.title }}
 
+**Internal ID:** `{{ finding.id }}`
+
 **Summary:**
 {{ finding.description }}
 
-**Severity:** {{ finding.severity.value | upper }}{% if finding.cvss_score is not none %} (CVSS 3.1: {{ finding.cvss_score }} — `{{ finding.cvss_vector }}`){% endif %}
-{% if finding.cwe %}**CWE:** {{ finding.cwe }}{% endif %}
+**Severity:** {{ finding.severity.value | upper }}
+{% if finding.cvss_score is not none %}
+**CVSS 3.1:** {{ finding.cvss_score }} — `{{ finding.cvss_vector }}`
+{% endif %}
+{% if finding.cwe %}
+**CWE:** {{ finding.cwe }}
+{% endif %}
 
 **Affected target:** `{{ finding.target }}`
 

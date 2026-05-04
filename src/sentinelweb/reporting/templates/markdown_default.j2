@@ -16,11 +16,21 @@
 {% for f in findings %}
 ## {{ loop.index }}. {{ f.title }}
 
-- **Severity**: `{{ f.severity.value | upper }}`{% if f.cvss_score is not none %} · **CVSS 3.1**: {{ f.cvss_score }} (`{{ f.cvss_vector }}`){% endif %}
+- **ID**: `{{ f.id }}`
+- **Severity**: `{{ f.severity.value | upper }}`
+{% if f.cvss_score is not none %}
+- **CVSS 3.1**: {{ f.cvss_score }} (`{{ f.cvss_vector }}`)
+{% endif %}
 - **Confidence**: {{ f.confidence.value }}
 - **Target**: `{{ f.target }}`
-- **Category**: {{ f.category }}{% if f.cwe %} · **CWE**: {{ f.cwe }}{% endif %}
-- **Detected by**: {{ f.detected_by }}{% if f.tags %} · **Tags**: {{ f.tags | join(', ') }}{% endif %}
+- **Category**: {{ f.category }}
+{% if f.cwe %}
+- **CWE**: {{ f.cwe }}
+{% endif %}
+- **Detected by**: {{ f.detected_by }}
+{% if f.tags %}
+- **Tags**: {{ f.tags | join(', ') }}
+{% endif %}
 
 ### Description
 {{ f.description }}
