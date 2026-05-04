@@ -60,6 +60,17 @@ def _security_severity(finding: Finding) -> str:
     return _SECURITY_SEVERITY_BY_SEVERITY[finding.severity]
 
 
+def _normalize_cwe(cwe: str) -> str:
+    """Return ``cwe`` with the canonical ``CWE-`` prefix.
+
+    Findings may carry CWE values either as bare numeric IDs (``"1021"``)
+    or already-prefixed (``"CWE-1021"``). Both rule and result properties
+    must agree on the format so downstream consumers (DefectDojo, custom
+    triage scripts) don't need to disambiguate.
+    """
+    return cwe if cwe.upper().startswith("CWE-") else f"CWE-{cwe}"
+
+
 def _rule_for(finding: Finding) -> dict[str, Any]:
     rule: dict[str, Any] = {
         "id": finding.id,
@@ -74,9 +85,7 @@ def _rule_for(finding: Finding) -> dict[str, Any]:
         },
     }
     if finding.cwe:
-        rule["properties"]["cwe"] = (
-            finding.cwe if finding.cwe.upper().startswith("CWE-") else f"CWE-{finding.cwe}"
-        )
+        rule["properties"]["cwe"] = _normalize_cwe(finding.cwe)
     if finding.remediation:
         rule["help"] = {"text": finding.remediation, "markdown": finding.remediation}
     if finding.references:
@@ -135,7 +144,7 @@ def _result_for(finding: Finding) -> dict[str, Any]:
     if finding.cvss_vector:
         result["properties"]["cvss_vector"] = finding.cvss_vector
     if finding.cwe:
-        result["properties"]["cwe"] = finding.cwe
+        result["properties"]["cwe"] = _normalize_cwe(finding.cwe)
     if finding.references:
         result["properties"]["references"] = list(finding.references)
     if finding.evidence:

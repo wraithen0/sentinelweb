@@ -110,6 +110,30 @@ def test_sarif_cwe_normalized_with_prefix() -> None:
     assert rule["properties"]["cwe"] == "CWE-1021"
 
 
+def test_sarif_cwe_consistent_between_rule_and_result() -> None:
+    """Rule + result CWE must use the same prefixed format.
+
+    Downstream SARIF consumers read CWE from both rule.properties and
+    result.properties; if they disagreed (one prefixed, one bare) the
+    consumer would see two distinct CWEs for the same logical finding.
+    """
+    doc = to_sarif([_csp_finding()], _engagement())
+    rule_cwe = doc["runs"][0]["tool"]["driver"]["rules"][0]["properties"]["cwe"]
+    result_cwe = doc["runs"][0]["results"][0]["properties"]["cwe"]
+    assert rule_cwe == result_cwe == "CWE-1021"
+
+
+def test_sarif_cwe_already_prefixed_is_not_double_prefixed() -> None:
+    """A finding that already has CWE-XXX must NOT become CWE-CWE-XXX."""
+    f = _csp_finding()
+    f.cwe = "CWE-79"
+    doc = to_sarif([f], _engagement())
+    rule = doc["runs"][0]["tool"]["driver"]["rules"][0]
+    result = doc["runs"][0]["results"][0]
+    assert rule["properties"]["cwe"] == "CWE-79"
+    assert result["properties"]["cwe"] == "CWE-79"
+
+
 def test_sarif_location_includes_url() -> None:
     doc = to_sarif([_csp_finding()], _engagement())
     loc = doc["runs"][0]["results"][0]["locations"][0]
