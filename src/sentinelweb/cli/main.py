@@ -22,6 +22,7 @@ from ..scanners import cors as scan_cors
 from ..scanners import headers as scan_headers
 from ..scanners import jwt as scan_jwt
 from ..scanners import redirect as scan_redirect
+from ..scanners import secrets as scan_secrets
 from ..scanners import sqli as scan_sqli
 from ..scanners import ssrf as scan_ssrf
 from ..scanners import takeover as scan_takeover
@@ -349,6 +350,7 @@ def recon_endpoints_cmd(scope_path: str, audit_path: str | None, url: str) -> No
             "tls",
             "takeover",
             "templates",
+            "secrets",
             "all",
         ]
     ),
@@ -428,6 +430,7 @@ def scan_cmd(
             "tls",
             "takeover",
             "templates",
+            "secrets",
         }
 
     for url in targets:
@@ -465,6 +468,8 @@ def scan_cmd(
                     findings.extend(await scan_sqli.scan(url, policy, client))
                 if "takeover" in selected:
                     findings.extend(await scan_takeover.scan(url, policy, client))
+                if "secrets" in selected:
+                    findings.extend(await scan_secrets.scan(url, policy, client))
             if templates:
                 findings.extend(
                     await run_templates_against(

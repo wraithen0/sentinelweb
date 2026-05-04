@@ -32,9 +32,12 @@ sentinelweb scan \
 ```
 
 `--scanner` may be repeated; choices are `headers`, `cors`, `redirect`,
-`xss`, `sqli`, `tls`, `takeover`, `templates`, or `all`. The `templates`
-scanner runs the bundled YAML detection templates (or a custom directory
-via `--templates-dir DIR`) — see [templates](#templates) below.
+`xss`, `sqli`, `tls`, `takeover`, `templates`, `secrets`, or `all`. The
+`templates` scanner runs the bundled YAML detection templates (or a
+custom directory via `--templates-dir DIR`) — see [templates](#templates)
+below. The `secrets` scanner inspects response bodies and headers for
+accidentally-exposed credentials — see [secrets](#secrets-in-responses)
+below.
 
 ### Authenticated sessions
 
@@ -179,6 +182,70 @@ Safety properties of the verification step:
 
 If `firefox` or `geckodriver` aren't found on `PATH`, the scan still
 runs to completion — verification is skipped with a yellow warning.
+
+## secrets-in-responses
+
+Inspects HTTP response bodies and headers for accidentally-exposed
+credentials. Emits findings with **redacted** evidence — the full secret
+is never written to the audit log, ``findings.json``, or any rendered
+report.
+
+```bash
+sentinelweb scan \
+  --scope scope.yaml \
+  --scanner secrets \
+  https://example.test/static/app.js https://example.test/api/config
+```
+
+Findings use the id namespace `SECRETS-<PATTERN>` (e.g.
+`SECRETS-AWS-ACCESS-KEY-ID`, `SECRETS-GITHUB-PAT-CLASSIC`,
+`SECRETS-STRIPE-SECRET-LIVE`, `SECRETS-PRIVATE-KEY-PEM`).
+
+### Pattern catalog (curated for high precision)
+
+The catalog is deliberately **provider-prefixed and length-bounded** —
+no generic `api_key="..."` heuristics that train people to ignore the
+scanner. Current providers covered:
+
+| Family | Examples |
+| --- | --- |
+| AWS | `AKIA*`, `ASIA*`, `AGPA*`, `AROA*`, `AIDA*`, `ANPA*`, `ANVA*`, `AIPA*` |
+| GitHub | classic PAT (`ghp_*`), fine-grained (`github_pat_*`), OAuth (`gho_*`), App (`ghs_*`), user-to-server (`ghu_*`), refresh (`ghr_*`) |
+| Slack | tokens (`xox[baprs]-*`), incoming webhooks (`https://hooks.slack.com/services/...`) |
+| Stripe | live secret (`sk_live_*`), live restricted (`rk_live_*`), test (`sk_test_*`), publishable (`pk_live_*`, INFO-only) |
+| Google | API key (`AIza*`), OAuth client id (INFO-only) |
+| npm / PyPI | `npm_*`, `pypi-AgE*` |
+| Twilio / SendGrid / Mailgun | `AC<sid>`, `SG.<id>.<secret>`, `key-*` |
+| Square | access (`sq0atp-*`), OAuth secret (`sq0csp-*`) |
+| Crypto | PEM private-key headers, JWT-shaped strings |
+
+### Safety properties
+
+- **Scope-checked first.** ``ScopePolicy.assert_in_scope(url)`` runs
+  before any HTTP traffic; out-of-scope targets raise.
+- **Read-only.** A single `GET` per target. The scanner never sends a
+  probe designed to trigger or amplify a leak.
+- **Redacted evidence.** Each finding's evidence excerpt is the
+  fingerprint `first4***last4` (or `***` for very short matches). The
+  full secret never reaches disk.
+- **Per-target dedupe + cap.** Each *distinct* secret string produces
+  at most one finding, and each pattern emits at most 5 findings per
+  target — so a leaked file full of test JWTs cannot drown out the
+  real signal.
+- **Boring-headers filter.** Standard transport headers
+  (`Content-Type`, `Cache-Control`, etc.) are never scanned, to keep
+  the JWT pattern from firing on tracing IDs.
+
+### When to triage as INFO
+
+Some matches are *intentionally* public:
+
+- Stripe `pk_live_*` (publishable keys are designed to be embedded)
+- Google OAuth client ids (`*.apps.googleusercontent.com`)
+
+These are still surfaced (so you can inventory them), but at severity
+`INFO` with remediation marked "no rotation required". Don't open a
+bounty report for these.
 
 ## takeover
 
