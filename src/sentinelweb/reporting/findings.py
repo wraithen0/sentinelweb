@@ -78,8 +78,34 @@ class Finding(BaseModel):
         return v.strip()
 
     def severity_rank(self) -> int:
-        order = [Severity.INFO, Severity.LOW, Severity.MEDIUM, Severity.HIGH, Severity.CRITICAL]
-        return order.index(self.severity)
+        return _SEVERITY_ORDER.index(self.severity)
+
+
+_SEVERITY_ORDER: list[Severity] = [
+    Severity.INFO,
+    Severity.LOW,
+    Severity.MEDIUM,
+    Severity.HIGH,
+    Severity.CRITICAL,
+]
+
+
+def severity_rank_of(severity: Severity) -> int:
+    """Return the ordinal rank (0..4) of ``severity`` for filter comparisons."""
+    return _SEVERITY_ORDER.index(severity)
+
+
+def filter_by_min_severity(
+    findings: list[Finding], min_severity: Severity
+) -> list[Finding]:
+    """Return only those findings whose severity is at least ``min_severity``.
+
+    ``Severity.INFO`` is the lowest rank, so ``min_severity=Severity.INFO``
+    is a no-op (returns ``findings`` unchanged). The function is pure: it
+    does not mutate the input list, and order is preserved.
+    """
+    threshold = severity_rank_of(min_severity)
+    return [f for f in findings if f.severity_rank() >= threshold]
 
 
 def sort_findings(findings: list[Finding]) -> list[Finding]:
