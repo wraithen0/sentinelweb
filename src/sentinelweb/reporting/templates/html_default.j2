@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SentinelWeb Report — {{ engagement.program }}</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 880px; margin: 2rem auto; padding: 0 1rem; color: #1b1f23; }
+  h1 { border-bottom: 2px solid #eee; padding-bottom: .25rem; }
+  .meta { color: #555; font-size: .9rem; }
+  .finding { border-left: 4px solid #888; padding: .5rem 1rem; margin: 1rem 0; background: #fafbfc; border-radius: 4px; }
+  .finding.critical { border-color: #b71c1c; }
+  .finding.high     { border-color: #ef6c00; }
+  .finding.medium   { border-color: #f9a825; }
+  .finding.low      { border-color: #43a047; }
+  .finding.info     { border-color: #1976d2; }
+  .badge { display: inline-block; padding: .1rem .5rem; border-radius: 3px; color: #fff; font-size: .75rem; font-weight: 600; text-transform: uppercase; margin-right: .25rem; }
+  .badge.critical { background: #b71c1c; }
+  .badge.high     { background: #ef6c00; }
+  .badge.medium   { background: #f9a825; color: #222; }
+  .badge.low      { background: #43a047; }
+  .badge.info     { background: #1976d2; }
+  pre { background: #0d1117; color: #c9d1d9; padding: .75rem; border-radius: 4px; overflow-x: auto; font-size: .85rem; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+</style>
+</head>
+<body>
+<h1>SentinelWeb Report</h1>
+<p class="meta">
+  <strong>Engagement:</strong> {{ engagement.program }} ·
+  <strong>Authorization:</strong> {{ engagement.authorization }} ·
+  <strong>Generated:</strong> {{ generated_at }} ·
+  <strong>Findings:</strong> {{ findings|length }}
+</p>
+<p class="meta">
+  Critical: {{ severity_counts.critical }} ·
+  High: {{ severity_counts.high }} ·
+  Medium: {{ severity_counts.medium }} ·
+  Low: {{ severity_counts.low }} ·
+  Info: {{ severity_counts.info }}
+</p>
+
+{% for f in findings %}
+<div class="finding {{ f.severity.value }}">
+  <h2>{{ loop.index }}. {{ f.title }}</h2>
+  <p>
+    <span class="badge {{ f.severity.value }}">{{ f.severity.value }}</span>
+    <strong>ID:</strong> <code>{{ f.id }}</code>
+    {% if f.cvss_score is not none %}· <strong>CVSS 3.1:</strong> {{ f.cvss_score }}{% endif %}
+    · <strong>Confidence:</strong> {{ f.confidence.value }}
+    · <strong>Target:</strong> <code>{{ f.target }}</code>
+    · <strong>Category:</strong> {{ f.category }}
+    {% if f.cwe %}· <strong>CWE:</strong> {{ f.cwe }}{% endif %}
+  </p>
+  <p>{{ f.description }}</p>
+
+  {% if f.evidence %}
+    <h3>Evidence</h3>
+    {% for e in f.evidence %}
+      <p><strong>{{ loop.index }}. {{ e.description }}</strong></p>
+      {% if e.request %}<pre>{{ e.request }}</pre>{% endif %}
+      {% if e.response_excerpt %}<pre>{{ e.response_excerpt }}</pre>{% endif %}
+    {% endfor %}
+  {% endif %}
+
+  {% if f.remediation %}<h3>Remediation</h3><p>{{ f.remediation }}</p>{% endif %}
+
+  {% if f.references %}
+    <h3>References</h3>
+    <ul>{% for r in f.references %}<li><a href="{{ r }}">{{ r }}</a></li>{% endfor %}</ul>
+  {% endif %}
+</div>
+{% endfor %}
+
+</body>
+</html>

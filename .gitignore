@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# Tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# Editor
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Runtime artifacts (never commit scan output, audit logs, or scope files)
+runs/
+out/
+reports/
+audit.log
+*.audit.jsonl
+scope.yaml
+!examples/scope.example.yaml
+
+# Secrets
+.env
+.env.*
+!.env.example

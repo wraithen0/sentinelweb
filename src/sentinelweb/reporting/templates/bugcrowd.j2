@@ -1,0 +1,45 @@
+{# Single-finding Bugcrowd-style submission template. #}
+**Title:** {{ finding.title }}
+**Internal ID:** `{{ finding.id }}`
+**VRT category:** {{ finding.category }}
+{% if finding.cwe %}
+**CWE:** CWE-{{ finding.cwe }}
+{% endif %}
+**Target:** `{{ finding.target }}`
+**Severity:** P? — {{ finding.severity.value | upper }}
+{% if finding.cvss_score is not none %}
+**CVSS 3.1 base:** {{ finding.cvss_score }}
+{% endif %}
+
+## Description
+{{ finding.description }}
+
+## Steps to reproduce
+{% for e in finding.evidence %}
+{{ loop.index }}. {{ e.description }}
+{% if e.request %}
+```
+{{ e.request }}
+```
+{% endif %}
+{% if e.response_excerpt %}
+Observed:
+```
+{{ e.response_excerpt }}
+```
+{% endif %}
+{% endfor %}
+
+## Impact
+{{ finding.description }}
+
+{% if finding.remediation %}
+## Suggested fix
+{{ finding.remediation }}
+{% endif %}
+
+{% if finding.references %}
+## References
+{% for r in finding.references %}- {{ r }}
+{% endfor %}
+{% endif %}
