@@ -50,6 +50,14 @@ dev = [
   "mypy>=1.10",
   "types-PyYAML",
 ]
+headless = [
+  # Optional extra: enables `sentinelweb scan --verify-xss` by driving
+  # system Firefox via geckodriver. On Fedora install both binaries with
+  # `sudo dnf install firefox geckodriver`; on Debian/Ubuntu use
+  # `sudo apt install firefox-esr firefox-geckodriver` (or distro
+  # equivalents). Selenium itself is pure-Python and ships no browser.
+  "selenium>=4.20",
+]
 
 [project.scripts]
 sentinelweb = "sentinelweb.cli.main:cli"

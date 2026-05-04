@@ -22,7 +22,7 @@ tested, when, and against which targets.
 | ----------- | ------------------------------------------------------------------------------------------------ |
 | **Scope**       | YAML policy, glob+wildcard matching, hash-chained audit log, `scope check` / `audit-verify` |
 | **Recon**       | passive subdomain enum (crt.sh + brute), nmap wrapper, tech fingerprint, JS/form/param mining |
-| **Scanners**    | security headers, CORS, open-redirect, reflected-XSS canary, error-based SQLi, CVSS-aware JWT analyzer, TLS / cert audit, SSRF callback probes, IDOR cross-context detector |
+| **Scanners**    | security headers, CORS, open-redirect, reflected-XSS canary (+ optional headless Firefox verification), error-based SQLi, CVSS-aware JWT analyzer, TLS / cert audit, SSRF callback probes, IDOR cross-context detector, dangling-CNAME takeover, YAML detection-template engine |
 | **Integrations**| nuclei, ProjectDiscovery httpx, ffuf, sqlmap (detection-only)                                |
 | **Reporting**   | Jinja-templated Markdown + HTML, HackerOne and Bugcrowd submission templates, CVSS v3.1 base scoring |
 
