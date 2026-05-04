@@ -242,7 +242,19 @@ def recon_endpoints_cmd(scope_path: str, audit_path: str | None, url: str) -> No
     show_default=True,
 )
 @click.option("--report-dir", type=click.Path(), default="reports", show_default=True)
-@click.option("--format", "formats", multiple=True, default=("md", "html"), show_default=True)
+@click.option(
+    "--format",
+    "formats",
+    multiple=True,
+    type=click.Choice(["md", "html", "sarif"]),
+    default=("md", "html"),
+    show_default=True,
+    help=(
+        "Report formats to render. findings.json is always emitted; "
+        "use --format sarif for SARIF 2.1.0 output suitable for "
+        "GitHub code-scanning."
+    ),
+)
 @click.argument("targets", nargs=-1, required=True)
 def scan_cmd(
     scope_path: str,
