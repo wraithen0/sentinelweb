@@ -32,7 +32,9 @@ sentinelweb scan \
 ```
 
 `--scanner` may be repeated; choices are `headers`, `cors`, `redirect`,
-`xss`, `sqli`, `tls`, `takeover`, or `all`.
+`xss`, `sqli`, `tls`, `takeover`, `templates`, or `all`. The `templates`
+scanner runs the bundled YAML detection templates (or a custom directory
+via `--templates-dir DIR`) — see [templates](#templates) below.
 
 ### Authenticated sessions
 
@@ -54,6 +56,84 @@ host_headers:                   # optional per-host overrides
   api.example.test:
     X-Internal-Token: "..."
 ```
+
+## templates
+
+YAML detection-template engine — lets non-Python operators ship checks
+without touching the framework's source.
+
+```bash
+# List the bundled built-in templates
+sentinelweb templates list
+
+# Run all built-ins against in-scope targets
+sentinelweb templates run --scope scope.yaml \
+  https://example.test/
+
+# Run a custom directory of templates, restricted to two ids
+sentinelweb templates run --scope scope.yaml \
+  --templates-dir ./my-templates \
+  --template-id exposed-env-file \
+  --template-id exposed-git-config \
+  https://example.test/
+```
+
+The same engine is reachable from `scan` via `--scanner templates`,
+sharing the same `--templates-dir` / `--template-id` filters and the
+`--session` / `--audit` flags from the rest of the suite.
+
+### Template syntax (subset of nuclei DSL)
+
+```yaml
+id: exposed-env-file
+info:
+  name: "Exposed .env file"
+  severity: high          # info | low | medium | high | critical
+  description: "..."
+  remediation: "..."
+  references:
+    - https://owasp.org/www-project-web-security-testing-guide/
+  cwe: 200                # bare number or "CWE-200"
+  category: information-disclosure
+  tags: [exposure, dotfile]
+
+requests:
+  - method: GET           # GET | HEAD | POST | OPTIONS (no destructive verbs)
+    path:
+      - "/.env"
+      - "/.env.production"
+    headers:              # optional, merged on top of session headers
+      X-Audit: sentinelweb
+    matchers-condition: and    # default: or
+    matchers:
+      - type: status
+        status: [200]
+      - type: regex
+        part: body              # body | header | response
+        regex:
+          - "^[A-Z][A-Z0-9_]+=.+"   # MULTILINE; ^/$ are line anchors
+      - type: word
+        words: ["DEBUG", "Werkzeug"]
+        condition: or            # default: or
+        case-insensitive: true   # default: false
+        negative: false          # default: false (set true to fire on absence)
+```
+
+Safety properties of the engine:
+
+- Every HTTP request goes through SentinelWeb's scope-enforcing client;
+  templates cannot bypass `scope.yaml`.
+- Paths must be relative (`/foo`); absolute URLs and protocol-relative
+  paths (`//host/...`) are rejected at load time.
+- Methods are restricted to `GET / HEAD / POST / OPTIONS`; `PUT /
+  DELETE / PATCH` are rejected so templates can't trigger destructive
+  side effects.
+- Finding ids are always namespaced as `TEMPLATE-<UPPER-ID>`, so they
+  can never collide with built-in scanner ids (`HDR-*`, `CORS-*`, etc.).
+
+See [`examples/templates/`](../examples/templates/) for hand-authored
+templates and [`src/sentinelweb/templates/builtin/`](../src/sentinelweb/templates/builtin/)
+for the bundled set.
 
 ## takeover
 

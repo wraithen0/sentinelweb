@@ -1,0 +1,37 @@
+# Detects a server that advertises its language/runtime via an
+# X-Powered-By header. Fingerprinting is a small information leak that
+# helps attackers pick the right exploit set.
+id: server-tech-disclosure
+info:
+  name: "Server-tech header disclosure"
+  severity: low
+  description: |
+    The response includes an `X-Powered-By` (or `Server`) header that
+    advertises the language/runtime in use. While not a vulnerability
+    on its own, this assists an attacker mapping out which exploit
+    families to try against the server.
+  remediation: |
+    Strip the `X-Powered-By` header at the edge / reverse proxy and
+    set `Server` to a static name that does not reveal the runtime
+    version.
+  references:
+    - https://owasp.org/www-project-secure-headers/
+  cwe: 200
+  category: information-disclosure
+  tags: [headers, fingerprinting]
+
+requests:
+  - method: GET
+    path:
+      - "/"
+    matchers-condition: or
+    matchers:
+      - type: word
+        part: header
+        words:
+          - "x-powered-by"
+        case-insensitive: true
+      - type: regex
+        part: header
+        regex:
+          - "(?i)^server: (apache|nginx|iis)/[0-9]"

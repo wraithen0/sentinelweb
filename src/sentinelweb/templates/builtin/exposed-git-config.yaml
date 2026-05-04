@@ -1,0 +1,36 @@
+# Detects an exposed `.git/config` file. This typically means the entire
+# repository (including history) is reachable, which can leak secrets,
+# internal URLs, and other source-code-level information.
+id: exposed-git-config
+info:
+  name: "Exposed .git/config"
+  severity: high
+  description: |
+    `/.git/config` returned a 200 response with a `[core]` section.
+    The webserver is serving the contents of a `.git/` directory; an
+    attacker can typically download the entire repository, including
+    historical commits.
+  remediation: |
+    Block `.git/` paths at the web server. In nginx:
+    `location ~ /\.git { deny all; }`. For Apache:
+    `<DirectoryMatch "/\.git">Require all denied</DirectoryMatch>`.
+    Avoid deploying with the `.git/` directory present in production.
+  references:
+    - https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/01-Information_Gathering/03-Review_Webserver_Metafiles_for_Information_Leakage
+  cwe: 540
+  category: information-disclosure
+  tags: [exposure, source-code, owasp-top-10]
+
+requests:
+  - method: GET
+    path:
+      - "/.git/config"
+    matchers-condition: and
+    matchers:
+      - type: status
+        status: [200]
+      - type: word
+        part: body
+        words:
+          - "[core]"
+        case-insensitive: false

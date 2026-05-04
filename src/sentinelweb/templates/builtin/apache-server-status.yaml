@@ -1,0 +1,34 @@
+# Detects an exposed Apache mod_status `/server-status` page, which
+# leaks live request URIs, client IPs, and server version info.
+id: apache-server-status
+info:
+  name: "Apache mod_status server-status page exposed"
+  severity: medium
+  description: |
+    The `/server-status` URL returned a 200 response containing the
+    Apache mod_status banner. This page leaks live request URIs,
+    remote IP addresses, and server build details that can help an
+    attacker enumerate the application.
+  remediation: |
+    Restrict mod_status to localhost or a management VLAN, e.g.:
+    `<Location "/server-status"> Require local </Location>`.
+    Better yet, disable mod_status in production.
+  references:
+    - https://httpd.apache.org/docs/current/mod/mod_status.html
+  cwe: 200
+  category: information-disclosure
+  tags: [exposure, apache, owasp-asvs]
+
+requests:
+  - method: GET
+    path:
+      - "/server-status"
+    matchers-condition: and
+    matchers:
+      - type: status
+        status: [200]
+      - type: word
+        part: body
+        words:
+          - "Apache Server Status"
+        case-insensitive: false
