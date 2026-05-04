@@ -1,0 +1,448 @@
+"""SentinelWeb command-line interface."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import sys
+from pathlib import Path
+
+import click
+from rich.console import Console
+from rich.table import Table
+
+from .. import __version__
+from ..recon import endpoints as recon_endpoints
+from ..recon import ports as recon_ports
+from ..recon import subdomains as recon_subdomains
+from ..recon import tech as recon_tech
+from ..reporting import render
+from ..reporting.findings import Finding, sort_findings
+from ..scanners import cors as scan_cors
+from ..scanners import headers as scan_headers
+from ..scanners import jwt as scan_jwt
+from ..scanners import redirect as scan_redirect
+from ..scanners import sqli as scan_sqli
+from ..scanners import ssrf as scan_ssrf
+from ..scanners import tls as scan_tls
+from ..scanners import xss as scan_xss
+from ..scope.audit import AuditLog, verify
+from ..scope.policy import OutOfScopeError, ScopeError, ScopePolicy, example_yaml
+from ..utils.http import make_client
+from ..utils.logging import configure, fatal, get_logger
+from ..utils.urls import normalize_host
+
+console = Console()
+log = get_logger(__name__)
+
+
+def _load_scope(path: str) -> ScopePolicy:
+    try:
+        return ScopePolicy.load(path)
+    except ScopeError as exc:
+        fatal(str(exc))
+        raise  # for type checkers
+
+
+def _attach_audit(policy: ScopePolicy, audit_path: str | None) -> AuditLog | None:
+    if not audit_path:
+        return None
+    log_obj = AuditLog(audit_path)
+    log_obj.append(
+        "run.start",
+        target=policy.engagement.program,
+        detail={
+            "authorization": policy.engagement.authorization,
+            "in_scope": list(policy.in_scope),
+            "out_of_scope": list(policy.out_of_scope),
+            "rate_per_sec": policy.rate_per_sec,
+        },
+    )
+    return log_obj
+
+
+@click.group(help="SentinelWeb — defensive web2 security framework.")
+@click.version_option(__version__, prog_name="sentinelweb")
+@click.option("--log-level", default="INFO", show_default=True, help="Logging level.")
+def cli(log_level: str) -> None:
+    configure(level=log_level)
+
+
+# ---------------------------------------------------------------------------
+# scope subcommands
+# ---------------------------------------------------------------------------
+
+
+@cli.group(help="Scope management commands.")
+def scope() -> None: ...
+
+
+@scope.command("init", help="Print an example scope.yaml to stdout.")
+def scope_init() -> None:
+    click.echo(example_yaml())
+
+
+@scope.command("validate", help="Validate a scope file.")
+@click.argument("scope_path", type=click.Path(exists=True, dir_okay=False))
+def scope_validate(scope_path: str) -> None:
+    policy = _load_scope(scope_path)
+    console.print(
+        f"[green]ok[/green] scope file is valid; "
+        f"{len(policy.in_scope)} in-scope, {len(policy.out_of_scope)} out-of-scope, "
+        f"rate={policy.rate_per_sec}/s"
+    )
+
+
+@scope.command("check", help="Check whether a host/URL is in scope.")
+@click.argument("scope_path", type=click.Path(exists=True, dir_okay=False))
+@click.argument("target")
+def scope_check(scope_path: str, target: str) -> None:
+    policy = _load_scope(scope_path)
+    ok = policy.is_in_scope(target)
+    if ok:
+        console.print(f"[green]in-scope[/green]: {target}")
+    else:
+        console.print(f"[red]OUT OF SCOPE[/red]: {target}")
+        sys.exit(2)
+
+
+@scope.command("audit-verify", help="Verify the hash chain of an audit log.")
+@click.argument("audit_path", type=click.Path(exists=True, dir_okay=False))
+def scope_audit_verify(audit_path: str) -> None:
+    ok, n, err = verify(audit_path)
+    if ok:
+        console.print(f"[green]ok[/green] audit chain verified across {n} entries")
+    else:
+        console.print(f"[red]FAIL[/red] audit chain broken: {err}")
+        sys.exit(2)
+
+
+# ---------------------------------------------------------------------------
+# recon subcommands
+# ---------------------------------------------------------------------------
+
+
+@cli.group(help="Reconnaissance commands.")
+def recon() -> None: ...
+
+
+@recon.command("subs", help="Enumerate subdomains for a registered domain.")
+@click.option("--scope", "scope_path", required=True, type=click.Path(exists=True))
+@click.option("--audit", "audit_path", type=click.Path(), default=None)
+@click.option("--wordlist", type=click.Path(exists=True), default=None)
+@click.argument("domain")
+def recon_subs(
+    scope_path: str, audit_path: str | None, wordlist: str | None, domain: str
+) -> None:
+    policy = _load_scope(scope_path)
+    audit = _attach_audit(policy, audit_path)
+
+    async def _run() -> list[str]:
+        async with make_client(rate_per_sec=policy.rate_per_sec) as client:
+            words = None
+            if wordlist:
+                words = Path(wordlist).read_text().splitlines()
+            return await recon_subdomains.enumerate(
+                domain, policy, client, wordlist=words
+            )
+
+    results = asyncio.run(_run())
+    if audit:
+        audit.append("recon.subs", target=domain, detail={"count": len(results)})
+    for r in results:
+        click.echo(r)
+
+
+@recon.command("ports", help="Run nmap against a host (must be in scope).")
+@click.option("--scope", "scope_path", required=True, type=click.Path(exists=True))
+@click.option("--ports", default="80,443,8080,8443", show_default=True)
+@click.option("--audit", "audit_path", type=click.Path(), default=None)
+@click.argument("host")
+def recon_ports_cmd(scope_path: str, ports: str, audit_path: str | None, host: str) -> None:
+    policy = _load_scope(scope_path)
+    audit = _attach_audit(policy, audit_path)
+    try:
+        services = recon_ports.scan(host, policy, ports=ports)
+    except recon_ports.NmapError as exc:
+        fatal(str(exc))
+        return
+    if audit:
+        audit.append("recon.ports", target=host, detail={"count": len(services)})
+    table = Table(title=f"Open services on {host}")
+    table.add_column("port")
+    table.add_column("proto")
+    table.add_column("state")
+    table.add_column("service")
+    table.add_column("product/version")
+    for s in services:
+        table.add_row(
+            str(s.port),
+            s.proto,
+            s.state,
+            s.service,
+            f"{s.product} {s.version}".strip(),
+        )
+    console.print(table)
+
+
+@recon.command("tech", help="Fingerprint tech stack of a URL.")
+@click.option("--scope", "scope_path", required=True, type=click.Path(exists=True))
+@click.option("--audit", "audit_path", type=click.Path(), default=None)
+@click.argument("url")
+def recon_tech_cmd(scope_path: str, audit_path: str | None, url: str) -> None:
+    policy = _load_scope(scope_path)
+    audit = _attach_audit(policy, audit_path)
+
+    async def _run() -> list[recon_tech.Tech]:
+        async with make_client(rate_per_sec=policy.rate_per_sec) as client:
+            return await recon_tech.fingerprint(url, policy, client)
+
+    techs = asyncio.run(_run())
+    if audit:
+        audit.append("recon.tech", target=url, detail={"count": len(techs)})
+    for t in techs:
+        click.echo(f"[{t.where}] {t.name}  {t.detail}".rstrip())
+
+
+@recon.command("endpoints", help="Discover URLs/forms/params on a page.")
+@click.option("--scope", "scope_path", required=True, type=click.Path(exists=True))
+@click.option("--audit", "audit_path", type=click.Path(), default=None)
+@click.argument("url")
+def recon_endpoints_cmd(scope_path: str, audit_path: str | None, url: str) -> None:
+    policy = _load_scope(scope_path)
+    audit = _attach_audit(policy, audit_path)
+
+    async def _run() -> dict[str, list[str]]:
+        async with make_client(rate_per_sec=policy.rate_per_sec) as client:
+            return await recon_endpoints.discover(url, policy, client)
+
+    results = asyncio.run(_run())
+    if audit:
+        audit.append(
+            "recon.endpoints",
+            target=url,
+            detail={k: len(v) for k, v in results.items()},
+        )
+    click.echo(json.dumps(results, indent=2))
+
+
+# ---------------------------------------------------------------------------
+# scan subcommand — runs the OWASP-oriented scanners.
+# ---------------------------------------------------------------------------
+
+
+@cli.command("scan", help="Run a scan suite against URL targets.")
+@click.option("--scope", "scope_path", required=True, type=click.Path(exists=True))
+@click.option("--audit", "audit_path", type=click.Path(), default=None)
+@click.option(
+    "--scanner",
+    multiple=True,
+    type=click.Choice(["headers", "cors", "redirect", "xss", "sqli", "tls", "all"]),
+    default=["all"],
+    show_default=True,
+)
+@click.option("--report-dir", type=click.Path(), default="reports", show_default=True)
+@click.option("--format", "formats", multiple=True, default=("md", "html"), show_default=True)
+@click.argument("targets", nargs=-1, required=True)
+def scan_cmd(
+    scope_path: str,
+    audit_path: str | None,
+    scanner: tuple[str, ...],
+    report_dir: str,
+    formats: tuple[str, ...],
+    targets: tuple[str, ...],
+) -> None:
+    policy = _load_scope(scope_path)
+    audit = _attach_audit(policy, audit_path)
+    selected = set(scanner)
+    if "all" in selected:
+        selected = {"headers", "cors", "redirect", "xss", "sqli", "tls"}
+
+    for url in targets:
+        try:
+            policy.assert_in_scope(url)
+        except OutOfScopeError as exc:
+            fatal(str(exc))
+            return
+
+    findings: list[Finding] = []
+
+    async def _run_async() -> None:
+        async with make_client(
+            rate_per_sec=policy.rate_per_sec, max_redirects=0
+        ) as client:
+            for url in targets:
+                if "headers" in selected:
+                    findings.extend(await scan_headers.scan(url, policy, client))
+                if "cors" in selected:
+                    findings.extend(await scan_cors.scan(url, policy, client))
+                if "redirect" in selected:
+                    findings.extend(await scan_redirect.scan(url, policy, client))
+                if "xss" in selected:
+                    findings.extend(await scan_xss.scan(url, policy, client))
+                if "sqli" in selected:
+                    findings.extend(await scan_sqli.scan(url, policy, client))
+
+    asyncio.run(_run_async())
+
+    if "tls" in selected:
+        for url in targets:
+            findings.extend(scan_tls.scan(url, policy))
+
+    findings = sort_findings(findings)
+    _print_summary(findings)
+    written = render.write_report(
+        findings, policy.engagement, report_dir, formats=list(formats)
+    )
+    for fmt, path in written.items():
+        console.print(f"[bold]{fmt}[/bold] -> {path}")
+    if audit:
+        audit.append(
+            "scan.complete",
+            target=",".join(targets),
+            detail={
+                "scanners": sorted(selected),
+                "findings": len(findings),
+            },
+        )
+
+
+# ---------------------------------------------------------------------------
+# jwt subcommand — analyzes a JWT directly.
+# ---------------------------------------------------------------------------
+
+
+@cli.command("jwt", help="Statically analyze a JWT for common weaknesses.")
+@click.option("--scope", "scope_path", type=click.Path(exists=True), default=None)
+@click.option(
+    "--target",
+    default="<token>",
+    show_default=True,
+    help="Display target the token is associated with (e.g. URL).",
+)
+@click.option("--wordlist", type=click.Path(exists=True), default=None)
+@click.argument("token")
+def jwt_cmd(
+    scope_path: str | None, target: str, wordlist: str | None, token: str
+) -> None:
+    policy = None
+    if scope_path:
+        policy = _load_scope(scope_path)
+        if target != "<token>":
+            try:
+                policy.assert_in_scope(target)
+            except OutOfScopeError as exc:
+                fatal(str(exc))
+                return
+    findings = scan_jwt.analyze(token, target=target)
+    if wordlist:
+        words = Path(wordlist).read_text().splitlines()
+        secret = scan_jwt.try_weak_secret(token, words)
+        if secret:
+            from ..reporting.findings import Confidence, Evidence, Severity
+
+            findings.append(
+                Finding(
+                    id="JWT-WEAK-SECRET",
+                    title="JWT signed with weak/dictionary secret",
+                    severity=Severity.CRITICAL,
+                    confidence=Confidence.CERTAIN,
+                    target=target,
+                    category="jwt",
+                    cwe="798",
+                    description=(
+                        "The HMAC secret was found in the supplied wordlist. "
+                        "Anyone with this secret can forge arbitrary tokens."
+                    ),
+                    remediation="Rotate the signing key to a 32+ byte random secret.",
+                    detected_by="scanners.jwt",
+                    evidence=[Evidence(description="secret recovered (redacted)")],
+                )
+            )
+    _print_summary(findings)
+    for f in findings:
+        console.print(f"[bold]{f.severity.value.upper()}[/bold] {f.title}")
+    _ = policy  # silence unused
+
+
+# ---------------------------------------------------------------------------
+# ssrf subcommand
+# ---------------------------------------------------------------------------
+
+
+@cli.command("ssrf", help="Send SSRF probes pointing at a callback URL you control.")
+@click.option("--scope", "scope_path", required=True, type=click.Path(exists=True))
+@click.option("--audit", "audit_path", type=click.Path(), default=None)
+@click.option(
+    "--callback",
+    required=True,
+    help="External callback URL you control (e.g. interactsh / collaborator).",
+)
+@click.argument("targets", nargs=-1, required=True)
+def ssrf_cmd(
+    scope_path: str, audit_path: str | None, callback: str, targets: tuple[str, ...]
+) -> None:
+    policy = _load_scope(scope_path)
+    audit = _attach_audit(policy, audit_path)
+
+    async def _run() -> list[Finding]:
+        out: list[Finding] = []
+        async with make_client(rate_per_sec=policy.rate_per_sec) as client:
+            for url in targets:
+                try:
+                    policy.assert_in_scope(url)
+                except OutOfScopeError as exc:
+                    fatal(str(exc))
+                out.extend(
+                    await scan_ssrf.scan(url, policy, client, callback_url=callback)
+                )
+        return out
+
+    findings = asyncio.run(_run())
+    if audit:
+        audit.append(
+            "scan.ssrf",
+            target=",".join(targets),
+            detail={"callback": callback, "findings": len(findings)},
+        )
+    _print_summary(findings)
+
+
+# ---------------------------------------------------------------------------
+# helpers
+# ---------------------------------------------------------------------------
+
+
+def _print_summary(findings: list[Finding]) -> None:
+    if not findings:
+        console.print("[green]no findings[/green]")
+        return
+    table = Table(title=f"Findings ({len(findings)})")
+    table.add_column("severity")
+    table.add_column("category")
+    table.add_column("target")
+    table.add_column("title")
+    for f in findings:
+        sev = f.severity.value.upper()
+        color = {
+            "CRITICAL": "bold red",
+            "HIGH": "red",
+            "MEDIUM": "yellow",
+            "LOW": "green",
+            "INFO": "cyan",
+        }.get(sev, "white")
+        table.add_row(
+            f"[{color}]{sev}[/{color}]",
+            f.category,
+            normalize_host(f.target) or f.target,
+            f.title,
+        )
+    console.print(table)
+
+
+def main() -> None:
+    cli(prog_name="sentinelweb")
+
+
+if __name__ == "__main__":  # pragma: no cover
+    main()

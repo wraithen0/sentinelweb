@@ -1,0 +1,22 @@
+# Example scope file. Copy this to scope.yaml and edit before running.
+# DO NOT commit your real scope.yaml to a public repo without thinking
+# about what you're disclosing.
+
+engagement:
+  program: "Example Program"
+  authorization: "https://hackerone.com/example"
+  contact: "you@example.com"
+
+in_scope:
+  - "*.example.test"
+  - "api.example.test"
+
+out_of_scope:
+  - "billing.example.test"
+  - "*.staff.example.test"
+
+rate_per_sec: 2
+max_concurrency: 4
+notes: |
+  Replace this file with the actual scope of your engagement before running
+  any scans. SentinelWeb refuses to send traffic to hosts outside in_scope.

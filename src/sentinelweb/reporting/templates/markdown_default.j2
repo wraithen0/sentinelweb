@@ -1,0 +1,57 @@
+# SentinelWeb Report — {{ engagement.program }}
+
+- **Engagement**: {{ engagement.program }}
+- **Authorization**: {{ engagement.authorization }}
+- **Generated**: {{ generated_at }}
+- **SentinelWeb version**: {{ version }}
+- **Findings**: {{ findings|length }}
+  {% set sev_counts = severity_counts %}
+  - Critical: {{ sev_counts.critical }} · High: {{ sev_counts.high }} · Medium: {{ sev_counts.medium }} · Low: {{ sev_counts.low }} · Info: {{ sev_counts.info }}
+
+> Findings are signal-only. Validate manually before submission and follow the
+> program's disclosure policy.
+
+---
+
+{% for f in findings %}
+## {{ loop.index }}. {{ f.title }}
+
+- **Severity**: `{{ f.severity.value | upper }}`{% if f.cvss_score is not none %} · **CVSS 3.1**: {{ f.cvss_score }} (`{{ f.cvss_vector }}`){% endif %}
+- **Confidence**: {{ f.confidence.value }}
+- **Target**: `{{ f.target }}`
+- **Category**: {{ f.category }}{% if f.cwe %} · **CWE**: {{ f.cwe }}{% endif %}
+- **Detected by**: {{ f.detected_by }}{% if f.tags %} · **Tags**: {{ f.tags | join(', ') }}{% endif %}
+
+### Description
+{{ f.description }}
+
+{% if f.evidence %}
+### Evidence
+{% for e in f.evidence %}
+**{{ loop.index }}. {{ e.description }}**
+{% if e.request %}
+```http
+{{ e.request }}
+```
+{% endif %}
+{% if e.response_excerpt %}
+```
+{{ e.response_excerpt }}
+```
+{% endif %}
+{% endfor %}
+{% endif %}
+
+{% if f.remediation %}
+### Remediation
+{{ f.remediation }}
+{% endif %}
+
+{% if f.references %}
+### References
+{% for r in f.references %}- {{ r }}
+{% endfor %}
+{% endif %}
+
+---
+{% endfor %}
