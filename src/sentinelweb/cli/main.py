@@ -17,7 +17,12 @@ from ..recon import ports as recon_ports
 from ..recon import subdomains as recon_subdomains
 from ..recon import tech as recon_tech
 from ..reporting import render
-from ..reporting.findings import Finding, sort_findings
+from ..reporting.findings import (
+    Finding,
+    Severity,
+    filter_by_min_severity,
+    sort_findings,
+)
 from ..scanners import cors as scan_cors
 from ..scanners import headers as scan_headers
 from ..scanners import jwt as scan_jwt
@@ -403,6 +408,18 @@ def recon_endpoints_cmd(scope_path: str, audit_path: str | None, url: str) -> No
         "GitHub code-scanning."
     ),
 )
+@click.option(
+    "--severity-threshold",
+    "severity_threshold",
+    type=click.Choice(["info", "low", "medium", "high", "critical"]),
+    default="info",
+    show_default=True,
+    help=(
+        "Minimum severity to render in the human-readable report and CLI "
+        "summary. ``findings.json`` always contains every observation so "
+        "you can re-render at any threshold via ``sentinelweb report``."
+    ),
+)
 @click.argument("targets", nargs=-1, required=True)
 def scan_cmd(
     scope_path: str,
@@ -414,6 +431,7 @@ def scan_cmd(
     verify_xss: bool,
     report_dir: str,
     formats: tuple[str, ...],
+    severity_threshold: str,
     targets: tuple[str, ...],
 ) -> None:
     policy = _load_scope(scope_path)
@@ -487,9 +505,23 @@ def scan_cmd(
         findings = _verify_xss(findings, policy)
 
     findings = sort_findings(findings)
-    _print_summary(findings)
+    threshold = Severity(severity_threshold)
+    rendered_findings = (
+        filter_by_min_severity(findings, threshold)
+        if threshold is not Severity.INFO
+        else findings
+    )
+    _print_summary(
+        rendered_findings,
+        threshold=threshold,
+        unfiltered_total=len(findings),
+    )
     written = render.write_report(
-        findings, policy.engagement, report_dir, formats=list(formats)
+        findings,
+        policy.engagement,
+        report_dir,
+        formats=list(formats),
+        min_severity=threshold,
     )
     for fmt, path in written.items():
         console.print(f"[bold]{fmt}[/bold] -> {path}")
@@ -500,8 +532,83 @@ def scan_cmd(
             detail={
                 "scanners": sorted(selected),
                 "findings": len(findings),
+                "rendered_findings": len(rendered_findings),
+                "severity_threshold": threshold.value,
             },
         )
+
+
+# ---------------------------------------------------------------------------
+# report subcommand — re-render an existing findings.json without re-scanning.
+# ---------------------------------------------------------------------------
+
+
+@cli.command(
+    "report",
+    help=(
+        "Re-render an existing findings.json into MD / HTML / SARIF without "
+        "re-scanning. Useful for tweaking templates, applying a stricter "
+        "severity threshold, or producing a SARIF artifact for a previously "
+        "scanned target."
+    ),
+)
+@click.option(
+    "--input",
+    "input_path",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Path to a findings.json produced by `sentinelweb scan`.",
+)
+@click.option(
+    "--report-dir",
+    type=click.Path(),
+    default="reports-rerendered",
+    show_default=True,
+    help="Directory to write rendered reports into. Created if missing.",
+)
+@click.option(
+    "--format",
+    "formats",
+    multiple=True,
+    type=click.Choice(["md", "html", "sarif"]),
+    default=("md", "html"),
+    show_default=True,
+    help=(
+        "Report formats to render. Unlike `scan`, no findings.json is "
+        "written here — the input file is the canonical record."
+    ),
+)
+@click.option(
+    "--severity-threshold",
+    "severity_threshold",
+    type=click.Choice(["info", "low", "medium", "high", "critical"]),
+    default="info",
+    show_default=True,
+    help=(
+        "Minimum severity to render. The original findings.json is left "
+        "untouched; only the rendered MD / HTML / SARIF respect this "
+        "filter."
+    ),
+)
+def report_cmd(
+    input_path: str,
+    report_dir: str,
+    formats: tuple[str, ...],
+    severity_threshold: str,
+) -> None:
+    threshold = Severity(severity_threshold)
+    try:
+        written = render.re_render_from_json(
+            input_path,
+            report_dir,
+            formats=list(formats),
+            min_severity=threshold,
+        )
+    except ValueError as exc:
+        fatal(str(exc))
+        return
+    for fmt, path in written.items():
+        console.print(f"[bold]{fmt}[/bold] -> {path}")
 
 
 # ---------------------------------------------------------------------------
@@ -763,11 +870,38 @@ def templates_run_cmd(
 # ---------------------------------------------------------------------------
 
 
-def _print_summary(findings: list[Finding]) -> None:
+def _print_summary(
+    findings: list[Finding],
+    *,
+    threshold: Severity | None = None,
+    unfiltered_total: int | None = None,
+) -> None:
+    """Render the rich-table summary.
+
+    When ``threshold`` is set above ``INFO`` and ``unfiltered_total`` is the
+    pre-filter count, the table title makes the suppression visible
+    (``Findings (rendered 3 of 7) — threshold: high``) so triagers know
+    findings.json still contains the unrendered ones.
+    """
+    if threshold is not None and threshold is not Severity.INFO:
+        title = (
+            f"Findings (rendered {len(findings)} "
+            f"of {unfiltered_total if unfiltered_total is not None else len(findings)})"
+            f" — threshold: {threshold.value}"
+        )
+    else:
+        title = f"Findings ({len(findings)})"
     if not findings:
-        console.print("[green]no findings[/green]")
+        if threshold is not None and threshold is not Severity.INFO:
+            console.print(
+                "[green]no findings at or above[/green] "
+                f"[bold]{threshold.value}[/bold] "
+                f"(filtered {unfiltered_total if unfiltered_total is not None else 0})"
+            )
+        else:
+            console.print("[green]no findings[/green]")
         return
-    table = Table(title=f"Findings ({len(findings)})")
+    table = Table(title=title)
     table.add_column("severity")
     table.add_column("category")
     table.add_column("target")
