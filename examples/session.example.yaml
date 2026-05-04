@@ -1,0 +1,31 @@
+# session.example.yaml — authenticated-session bundle for SentinelWeb
+#
+# Pair this with scope.yaml when scanning logged-in flows. SentinelWeb
+# attaches these cookies/headers ONLY to in-scope hosts; a redirect to a
+# third-party domain (e.g. an SSO provider) will NOT carry the session.
+#
+# Keep this file out of source control. Treat it like a credential.
+
+cookies:
+  # Simple session cookie scoped to the registered domain.
+  - name: session
+    value: "REPLACE_ME"
+    domain: "example.test"
+    path: "/"
+
+  # Wildcard-domain cookie — sent to any in-scope host. Useful when the
+  # target spans multiple subdomains under one auth.
+  - name: tracking_id
+    value: "REPLACE_ME"
+    domain: "*"
+
+headers:
+  # Bearer tokens are attached as a request header so they ride alongside
+  # whatever cookies the browser would have sent.
+  Authorization: "Bearer REPLACE_ME"
+
+# Per-host overrides — merged on top of the global headers above when the
+# request host matches the key.
+host_headers:
+  api.example.test:
+    X-Internal-Token: "REPLACE_ME"
