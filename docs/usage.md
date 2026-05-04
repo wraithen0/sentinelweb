@@ -28,6 +28,7 @@ sentinelweb scan \
   --scanner all \
   --report-dir reports/run-N \
   --format md --format html --format sarif \
+  --severity-threshold medium \
   https://example.test/ https://api.example.test/foo?id=1
 ```
 
@@ -38,6 +39,57 @@ custom directory via `--templates-dir DIR`) — see [templates](#templates)
 below. The `secrets` scanner inspects response bodies and headers for
 accidentally-exposed credentials — see [secrets](#secrets-in-responses)
 below.
+
+### Severity threshold
+
+`--severity-threshold {info,low,medium,high,critical}` (default `info`)
+filters which findings are rendered into `report.md` / `report.html` /
+`report.sarif` and shown on the CLI summary table. **It does not filter
+`findings.json`** — that file always contains every observation so
+triagers can re-render the report at any threshold via the
+[`report`](#report) subcommand without re-scanning. Use `medium` to drop
+informational/inventory findings (e.g. Stripe `pk_live_*`, intentionally-
+public Google OAuth client ids) from a SARIF artifact uploaded to GitHub
+code-scanning.
+
+| threshold | shown in report.md / .html / .sarif / CLI |
+| --- | --- |
+| `info` (default) | every finding |
+| `low` | LOW + MEDIUM + HIGH + CRITICAL |
+| `medium` | MEDIUM + HIGH + CRITICAL |
+| `high` | HIGH + CRITICAL |
+| `critical` | CRITICAL only |
+
+The CLI summary table title makes the suppression visible (e.g.
+`Findings (rendered 3 of 7) — threshold: high`) so suppressed findings
+aren't lost in plain sight.
+
+## report
+
+Re-render an existing `findings.json` into MD / HTML / SARIF without
+re-scanning. Useful for tweaking templates, applying a stricter
+`--severity-threshold` (e.g. for a SARIF artifact uploaded to GitHub
+code-scanning), or producing a per-format file from an old run.
+
+```bash
+sentinelweb report \
+  --input reports/run-N/findings.json \
+  --report-dir reports/run-N-rerendered \
+  --format sarif \
+  --severity-threshold high
+```
+
+Notes:
+
+- The input file is the canonical record. `report` does **not** write a
+  new `findings.json` — output is `report.md` / `report.html` /
+  `report.sarif` only.
+- The original engagement metadata is carried over from the input file's
+  `engagement` block, so the regenerated report is identical to a fresh
+  `scan` rendering at the same threshold.
+- A malformed input file (truncated JSON, missing `engagement` /
+  `findings`, or any finding the model can't parse) yields a clean
+  `ValueError` and a non-zero exit code — never a stack trace.
 
 ### Authenticated sessions
 
