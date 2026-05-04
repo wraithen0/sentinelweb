@@ -24,6 +24,7 @@ from ..reporting.findings import (
     sort_findings,
 )
 from ..scanners import cors as scan_cors
+from ..scanners import csp as scan_csp
 from ..scanners import graphql as scan_graphql
 from ..scanners import headers as scan_headers
 from ..scanners import jwt as scan_jwt
@@ -358,6 +359,7 @@ def recon_endpoints_cmd(scope_path: str, audit_path: str | None, url: str) -> No
             "templates",
             "secrets",
             "graphql",
+            "csp",
             "all",
         ]
     ),
@@ -452,6 +454,7 @@ def scan_cmd(
             "templates",
             "secrets",
             "graphql",
+            "csp",
         }
 
     for url in targets:
@@ -493,6 +496,8 @@ def scan_cmd(
                     findings.extend(await scan_secrets.scan(url, policy, client))
                 if "graphql" in selected:
                     findings.extend(await scan_graphql.scan(url, policy, client))
+                if "csp" in selected:
+                    findings.extend(await scan_csp.scan(url, policy, client))
             if templates:
                 findings.extend(
                     await run_templates_against(

@@ -33,14 +33,16 @@ sentinelweb scan \
 ```
 
 `--scanner` may be repeated; choices are `headers`, `cors`, `redirect`,
-`xss`, `sqli`, `tls`, `takeover`, `templates`, `secrets`, `graphql`, or
-`all`. The `templates` scanner runs the bundled YAML detection templates
-(or a custom directory via `--templates-dir DIR`) — see
-[templates](#templates) below. The `secrets` scanner inspects response
-bodies and headers for accidentally-exposed credentials — see
+`xss`, `sqli`, `tls`, `takeover`, `templates`, `secrets`, `graphql`,
+`csp`, or `all`. The `templates` scanner runs the bundled YAML
+detection templates (or a custom directory via `--templates-dir DIR`)
+— see [templates](#templates) below. The `secrets` scanner inspects
+response bodies and headers for accidentally-exposed credentials — see
 [secrets](#secrets-in-responses) below. The `graphql` scanner probes a
 GraphQL endpoint for introspection and dev-UI exposure — see
-[graphql](#graphql) below.
+[graphql](#graphql) below. The `csp` scanner analyzes an existing
+`Content-Security-Policy` header for known weaknesses — see
+[csp](#csp) below.
 
 ### Severity threshold
 
@@ -300,6 +302,36 @@ Some matches are *intentionally* public:
 These are still surfaced (so you can inventory them), but at severity
 `INFO` with remediation marked "no rotation required". Don't open a
 bounty report for these.
+
+## csp
+
+Analyzes an existing `Content-Security-Policy` for content-level
+weaknesses. Complements the `headers` scanner, which only flags a
+*missing* CSP — `csp` looks at what's inside one that's present.
+
+```bash
+sentinelweb scan --scope scope.yaml \
+  --scanner csp \
+  https://app.example.test/
+```
+
+Detections (each with concrete remediation in the rendered report):
+
+| Finding ID | Severity | Triggers when… |
+| --- | --- | --- |
+| `CSP-UNSAFE-INLINE-SCRIPT` | HIGH (CWE-79) | `script-src` includes `'unsafe-inline'` (and not `'strict-dynamic'`) |
+| `CSP-UNSAFE-EVAL` | MEDIUM (CWE-79) | `script-src` includes `'unsafe-eval'` |
+| `CSP-WILDCARD-SCRIPT-SRC` | HIGH (CWE-79) | `script-src` includes `*` |
+| `CSP-DATA-URL-SCRIPT-SRC` | HIGH (CWE-79) | `script-src` includes `data:` |
+| `CSP-MISSING-OBJECT-SRC` | MEDIUM (CWE-693) | no `object-src` and no `default-src 'none'` |
+| `CSP-MISSING-FRAME-ANCESTORS` | LOW (CWE-1021) | no `frame-ancestors` directive |
+| `CSP-MISSING-BASE-URI` | LOW (CWE-693) | no `base-uri` directive |
+| `CSP-REPORT-ONLY-MODE` | INFO | only `Content-Security-Policy-Report-Only` is set |
+
+The scanner mirrors browser semantics: `'strict-dynamic'` suppresses
+`'unsafe-inline'` / wildcard findings, and `default-src 'none'`
+satisfies the object-src guard. `script-src` falls back to
+`default-src` when absent.
 
 ## graphql
 
